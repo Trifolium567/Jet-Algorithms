@@ -224,7 +224,6 @@ def standard_normal(x: float) -> float:
     """Return the probability density of the standard normal distribution at `x`."""
     return normaldist(x, 0, 1)
 
-
 # %%
 NormalDist = Distribution1D(standard_normal)
 SincSqDist = Distribution1D(sincsquared)
@@ -428,6 +427,5 @@ print(specified_ellipse.integrate_within_error(-3, 3, -2, 2, rng, 0.01))
 def ellipse_indicator_specified2(x: float, y: float):
     return ellipse_indicator(x, y, 5, 3)
 
-specified_ellipse_2 = MCIntegrator2D(ellipse_indicator_specified2)
+specified_ellipse_2 = MCIntegrator2D(ellipse_indicator_specified2)  # ruff: ignore[blank-lines-after-function-or-class]
 print(specified_ellipse_2.integrate_within_error(-6, 6, -4, 4, rng, 0.001))
-# 

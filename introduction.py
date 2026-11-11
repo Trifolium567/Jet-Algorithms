@@ -3,6 +3,8 @@ import numba as nb
 import numpy as np
 from matplotlib import pyplot as plt
 from scipy.constants import golden as PHI
+
+rng = np.random.default_rng()
 # %%
 
 
@@ -10,15 +12,15 @@ from scipy.constants import golden as PHI
 def find_maximum(lower_bound: float, upper_bound: float,
                  f, abs_error: float = 1e-15
     ) -> float:
-    """Find the maximum of a unimodal function, `f`, in a provided range.
+    r"""Find the maximum of a unimodal function, `f`, in a provided range.
 
     This function uses the Golden Section method to find the maximum of a unimodal
-    function, `f` within the interval [lower, upper].
-
-    It successively decreases the interval
-
-    from numerical methods in c (book)
-    Include: process, termination condition
+    function, `f` within the interval [lower, upper]. It searches by probing an interval
+    at two points, each `(1 - \phi) * length_of_interval` away from each bound to get
+    the maximum values of each integral, then it narrows the interval depending on which
+    of the probed values and the interval bounds was the maximum. The termination
+    condition is when the distance between the two probed values reaches
+    `sqrt(absolute_error) * length_of_interval`.
 
     Parameters
     ----------
@@ -224,7 +226,6 @@ def standard_normal(x: float) -> float:
 
 
 # %%
-rng = np.random.default_rng()
 NormalDist = Distribution1D(standard_normal)
 SincSqDist = Distribution1D(sincsquared)
 
@@ -257,3 +258,176 @@ plt.show()
 plt.hist(snc_sq_samples2, 50)
 plt.show()
 # %%
+
+@nb.experimental.jitclass([
+    ("_function_vectorised", nb.float64[:](nb.float64[:], nb.float64[:]).as_type()),
+    ("_function_scalar", nb.float64(nb.float64, nb.float64).as_type()),
+])
+class MCIntegrator2D:
+    """Monte Carlo Integrator Object over a provided function."""
+
+    def __init__(self, f):
+        """Create MCIntegrator2D object instance.
+        
+        Parameters
+        ----------
+        f : function
+            This should be in the signature f(x: float, y: float) -> float. It should be
+            compatible with numpy arrays.
+        """
+        self._function_vectorised = f
+        self._function_scalar = f
+
+    def _generate_n_values(
+            self, lower_x: float, upper_x: float,
+            lower_y: float, upper_y: float, rng, n: int = 1000
+        ) -> np.typing.NDArray[np.float64]:
+        x_values = rng.uniform(lower_x, upper_x, size=n)
+        y_values = rng.uniform(lower_y, upper_y, size=n)
+        f_values = self._function_vectorised(x_values, y_values)
+        return f_values
+
+    def integrate(self, lower_x: float, upper_x: float,
+                  lower_y: float, upper_y: float,
+                  rng: np.random.Generator, n: int = 1000
+        ) -> float:
+        """Monte Carlo integrate a provided function `f(x, y)` over a given range.
+
+        Parameters
+        ----------
+        lower_x : float
+            lower bound of x variable.
+        upper_x : float
+            upper bound of x variable.
+        lower_y : float
+            lower bound of y variable.
+        upper_y : float
+            upper bound of y variable.
+        rng : numpy.random.Generator
+            The random number generator object that is used for Monte-Carlo Integration
+        f : float
+            function of signature `f(x: float, y: float) -> float`. Should be compatible
+            with arrays.
+        n : int
+            The number of values to use in the Monte-Carlo integration, by default 1000.
+
+        Returns
+        -------
+        float
+            The result of the monte carlo integrator
+
+        Raises
+        ------
+        ValueError
+            if lower_x > upper_x or lower_y > upper_y
+        """
+        if lower_x >= upper_x and lower_y >= upper_y:
+            raise ValueError(f"lower_y = {lower_y}, upper_y = {upper_y}. upper_y must"
+                             f" be > lower_y. lower_x = {lower_x}, upper_x = {upper_x}."
+                             f" upper_x must be > lower_x.")
+        elif lower_y >= upper_y:
+            raise ValueError(f"lower_y = {lower_y}, upper_y = {upper_y}. upper_y must"
+                              " be > lower_y")
+        elif lower_x >= upper_x:
+            raise ValueError(f"lower_x = {lower_x}, upper_x = {upper_x}. upper_x must"
+                              " be > lower_x")
+
+        x_range = upper_x - lower_x
+        y_range = upper_y - lower_y
+        f_values = self._generate_n_values(lower_x, upper_x, lower_y, upper_y, rng, n)
+        return np.mean(f_values) * x_range * y_range
+
+    def integrate_within_error(
+            self, lower_x: float, upper_x: float,
+            lower_y: float, upper_y: float,
+            rng: np.random.Generator, abs_error: float = 0.01
+        ) -> float:
+        """Monte Carlo integrate such that the result's error is less than `abs_error`.
+
+        Parameters
+        ----------
+        lower_x : float
+            lower bound of x variable.
+        upper_x : float
+            upper bound of x variable.
+        lower_y : float
+            lower bound of y variable.
+        upper_y : float
+            upper bound of y variable.
+        rng : numpy.random.Generator
+            The random number generator used to do Monte-Carlo Integration
+        abs_error : float
+            the absolute error within which the result's standard deviation must be.
+
+        Returns
+        -------
+        float
+            The result of the integral.
+
+        Raises
+        ------
+        ValueError
+            if lower_y > upper_y or lower_x > upper_y
+        """
+        if lower_x >= upper_x and lower_y >= upper_y:
+            raise ValueError(f"lower_y = {lower_y}, upper_y = {upper_y}. upper_y must"
+                                f" be > lower_y. lower_x = {lower_x}, upper_x = "
+                                f"{upper_x}. upper_x must be > lower_x.")
+        elif lower_y >= upper_y: 
+            raise ValueError(f"lower_y = {lower_y}, upper_y = {upper_y}. upper_y must"
+                                " be > lower_y")
+        elif lower_x >= upper_x:
+            raise ValueError(f"lower_x = {lower_x}, upper_x = {upper_x}. upper_x must"
+                              " be > lower_x")
+        x_range = upper_x - lower_x
+        y_range = upper_y - lower_y
+        # compute a minimum of 1000 times
+        N = 1000
+        f_values = self._generate_n_values(lower_x, upper_x, lower_y,
+                                           upper_y, rng, N)
+
+        sample_variance = np.sum((f_values - np.mean(f_values))**2) / (N - 1)
+        sum_f = np.sum(f_values)
+        sum_f_squared = np.sum(f_values ** 2)
+
+        # sigma(integral) ~ x_range * y_range * sigma(f) / sqrt(N)
+        while x_range * y_range * np.sqrt(sample_variance / N) > abs_error:
+            x_value = rng.uniform(lower_x, upper_x)
+            y_value = rng.uniform(lower_y, upper_y)
+            # size=1 is put in these arrays to make them compatible with numba's strong
+            # typing.
+            f_value = self._function_scalar(x_value, y_value)
+            sum_f += f_value
+            sum_f_squared += f_value ** 2
+            N += 1
+            sample_variance = sum_f_squared / (N - 1) - sum_f**2 / N / (N - 1)
+        return (sum_f / N) * x_range * y_range
+
+# %%
+@nb.jit
+def ellipse_indicator(x: float, y: float, a: float, b: float) -> float:
+    """Indicate wether or not an x-y coordinate is in an ellipse."""
+    # done this way to work with numba
+    return 0.5 * (np.sign(1 - (x / a)**2 - (y / b)**2) + 1)
+
+@nb.jit
+def ellipse_indicator_specified(x: float, y: float) -> float:
+    """Indicate wether or not a coordinate is in an ellipses of specified semi-minor and major axes."""
+    return ellipse_indicator(x, y, 2, 1)
+
+
+# %%
+specified_ellipse = MCIntegrator2D(ellipse_indicator_specified)
+print(specified_ellipse.integrate(-2, 2, -1, 1, rng))
+print(specified_ellipse.integrate(-3, 3, -2, 2, rng))
+print(specified_ellipse.integrate_within_error(-3, 3, -2, 2, rng, 0.01))
+
+# %%
+
+@nb.jit
+def ellipse_indicator_specified2(x: float, y: float):
+    return ellipse_indicator(x, y, 5, 3)
+
+specified_ellipse_2 = MCIntegrator2D(ellipse_indicator_specified2)
+print(specified_ellipse_2.integrate_within_error(-6, 6, -4, 4, rng, 0.001))
+# 

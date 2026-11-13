@@ -224,6 +224,7 @@ def standard_normal(x: float) -> float:
     """Return the probability density of the standard normal distribution at `x`."""
     return normaldist(x, 0, 1)
 
+
 # %%
 NormalDist = Distribution1D(standard_normal)
 SincSqDist = Distribution1D(sincsquared)
@@ -257,6 +258,7 @@ plt.show()
 plt.hist(snc_sq_samples2, 50)
 plt.show()
 # %%
+
 
 @nb.experimental.jitclass([
     ("_function_vectorised", nb.float64[:](nb.float64[:], nb.float64[:]).as_type()),
@@ -334,7 +336,7 @@ class MCIntegrator2D:
         x_range = upper_x - lower_x
         y_range = upper_y - lower_y
         f_values = self._generate_n_values(lower_x, upper_x, lower_y, upper_y, rng, n)
-        return np.mean(f_values) * x_range * y_range
+        return np.mean(f_values) * x_range * y_range  # ty: ignore[invalid-return-type]
 
     def integrate_within_error(
             self, lower_x: float, upper_x: float,
@@ -402,6 +404,7 @@ class MCIntegrator2D:
             sample_variance = sum_f_squared / (N - 1) - sum_f**2 / N / (N - 1)
         return (sum_f / N) * x_range * y_range
 
+
 # %%
 @nb.jit
 def ellipse_indicator(x: float, y: float, a: float, b: float) -> float:
@@ -409,9 +412,9 @@ def ellipse_indicator(x: float, y: float, a: float, b: float) -> float:
     # done this way to work with numba
     return 0.5 * (np.sign(1 - (x / a)**2 - (y / b)**2) + 1)
 
-@nb.jit
+@nb.jit  # ruff: ignore[blank-lines-top-level]
 def ellipse_indicator_specified(x: float, y: float) -> float:
-    """Indicate wether or not a coordinate is in an ellipses of specified semi-minor and major axes."""
+    """Indicate if (`x`, `y`) is in ellipse of semi-minor axis 2 and semi-major axis 1."""  # ruff: ignore[line-too-long]
     return ellipse_indicator(x, y, 2, 1)
 
 
@@ -420,11 +423,12 @@ specified_ellipse = MCIntegrator2D(ellipse_indicator_specified)
 print(specified_ellipse.integrate(-2, 2, -1, 1, rng))
 print(specified_ellipse.integrate(-3, 3, -2, 2, rng))
 print(specified_ellipse.integrate_within_error(-3, 3, -2, 2, rng, 0.01))
-
 # %%
+
 
 @nb.jit
 def ellipse_indicator_specified2(x: float, y: float):
+    """Indicate if coordinate is in ellipse of semi-major axis 5 and semi-minor axis 3."""
     return ellipse_indicator(x, y, 5, 3)
 
 specified_ellipse_2 = MCIntegrator2D(ellipse_indicator_specified2)  # ruff: ignore[blank-lines-after-function-or-class]

@@ -8,6 +8,8 @@ import numpy as np
 class FourVector:
     """Four-Vector object."""
 
+    cartesian_vector: np.ndarray[tuple[int], np.dtype[np.float64]]
+
     def __init__(self, E: float, p_x: float, p_y: float, p_z: float):
         """Initialise FourVector object.
 
@@ -22,8 +24,7 @@ class FourVector:
         p_z : float
             The momentum in the z-direction, in units of Gev / v
         """
-        # order="C" make sure memory layout is contingious
-        self.cartesian_vector = np.array([E, p_x, p_y, p_z])
+        self.cartesian_vector = np.asarray([E, p_x, p_y, p_z])
 
     @property
     def p_T(self):
@@ -33,7 +34,7 @@ class FourVector:
     @property
     def azimuthal_angle(self):
         """Azimuthal angle of the four-vector."""
-        return np.atan(self.p_T / self.cartesian_vector[2])
+        return np.atan(self.cartesian_vector[2] / self.cartesian_vector[1])
 
     @property
     def rapidity(self):
@@ -51,7 +52,9 @@ class FourVector:
         return np.dot(self.cartesian_vector, self.cartesian_vector
                       * np.array([1, -1, -1, -1]))
 
-    def __add__(self, other: "FourVector") -> "FourVector":
+    def __add__(
+            self, other: "FourVector | FourVectorArray"
+        ) -> "FourVector | FourVectorArray":
         """Add the FourVector Objects.
 
         Parameters
@@ -64,9 +67,21 @@ class FourVector:
         FourVector
             The result of the addition
         """
-        result = self.cartesian_vector + other.cartesian_vector
-        return FourVector(result[0], result[1], result[2], result[3])
-        
+        if isinstance(other, FourVector):
+            result = self.cartesian_vector + other.cartesian_vector
+            return FourVector(result[0], result[1], result[2], result[3])
+        elif isinstance(other, FourVectorArray):
+            append_array = np.array([[self.cartesian_vector[0]],
+                                     [self.cartesian_vector[1]],
+                                     [self.cartesian_vector[2]],
+                                     [self.cartesian_vector[3]]])
+            result_array = np.append(other.cartesian_vectors, append_array, axis=1)
+            return FourVectorArray(result_array[0], result_array[1], result_array[2],
+                                   result_array[3])
+        else:
+            raise TypeError(f"Operator '+' is only supported when {self} and {other}"
+                            " are of type FourVector or FourVectorArray")
+ 
     # def __str__(self) -> str:  # useful for debugging
     #     """Represent the FourVector object as a string."""
     #     return f"FourVector({self.vector[0]}, {self.vector[1]}, " + \
@@ -110,17 +125,26 @@ class FourVector:
               alpha * beta_y * beta_z],
              [-gamma * beta_z, alpha * beta_z * beta_x, alpha * beta_z * beta_y,
               1 + alpha * beta_z**2]
-        ]) @ np.ascontiguousarray(self.cartesian_vector)
+        ]) @ self.cartesian_vector
+        # numba will give a performance warning saying that self.cartesian_vectors isn't
+        # contigious. It has been set so above.
+
         return FourVector(result[0], result[1], result[2], result[3])
 
 
 @nb.experimental.jitclass([
-    ("cartesian_vectors", nb.float64[:, :])
+    ("cartesian_vectors", nb.float64[:, :]),
+    ("p_T_array", nb.float64[:]),
+    ("azimuthal_angle_array", nb.float64[:]),
+    ("rapidity_array", nb.float64[:]),
 ])
 class FourVectorArray:
     """Object to store and effectively operate on four-vectors."""
 
     cartesian_vectors: np.ndarray[tuple[int, int], np.dtype[np.float64]]
+    p_T_array: np.ndarray[tuple[int], np.dtype[np.float64]]
+    azimuthal_angle_array: np.ndarray[tuple[int], np.dtype[np.float64]]
+    rapidity_array: np.ndarray[tuple[int], np.dtype[np.float64]]
 
     def __init__(self, E_array, p_x_array, p_y_array, p_z_array):
         """Initialise the FourVectorArray object.
@@ -141,37 +165,29 @@ class FourVectorArray:
         ValueError
             If the parameters are not of the same length or are not of only 1 dimension.
         """
-        # TODO: add validation to make sure that all the parameters are arrays
-        # TODO: make sure they are arrays of the same shape as well
-        # length is done. add shape
-        E = np.array(E_array, dtype=np.float64)
-        p_x = np.array(p_x_array, dtype=np.float64)
-        p_y = np.array(p_y_array, dtype=np.float64)
-        p_z = np.array(p_z_array, dtype=np.float64)
+        E = np.asarray(E_array, dtype=np.float64)
+        p_x = np.asarray(p_x_array, dtype=np.float64)
+        p_y = np.asarray(p_y_array, dtype=np.float64)
+        p_z = np.asarray(p_z_array, dtype=np.float64)
 
-        E_length = len(E)
-        x_length = len(p_x)
-        y_length = len(p_y)
-        z_length = len(p_z)
+        E_shape = E.shape
+        x_shape = p_x.shape
+        y_shape = p_x.shape
+        z_shape = p_x.shape
 
         error_message = ""
-        if not (E_length == x_length == y_length == z_length):
-            error_message = f"len(E_array) = {E_length}, len(p_x_array) = {x_length},"+\
-                f" len(p_y_array) = {y_length}, len(p_z_array) = {z_length}"  # ruff: ignore[missing-whitespace-around-arithmetic-operator]
+        if not (E_shape == x_shape == y_shape == z_shape):
+            error_message = f"E_array.shape = {E_shape}, p_x_array.shape = " + \
+                f"{x_shape}, p_y_array.shape = {y_shape}, p_z_array.shape = {z_shape}"
         elif not (E.ndim == 1 and p_x.ndim == 1 and p_y.ndim == 1 and p_z.ndim == 1):
             error_message = f"E_array.ndim = {E.ndim}, p_x_array.ndim = {p_x.ndim}," + \
                 f" p_y_array.ndim = {p_y.ndim}, p_z_array.ndim = {p_z.ndim}. " + \
                 f"All inputs should be 1d."
-        
+    
         if error_message:
             raise ValueError(error_message)
         # else:
-        container_array = np.zeros((4, E_length), dtype=np.float64)
-        # for i in range(E_length):
-        #     container_array[0, i] = E[i]
-        #     container_array[1, i] = p_x[i]
-        #     container_array[2, i] = p_y[i]
-        #     container_array[3, i] = p_z[i]
+        container_array = np.zeros((4, E_shape[0]), dtype=np.float64)
 
         container_array[0] = E
         container_array[1] = p_x
@@ -179,22 +195,58 @@ class FourVectorArray:
         container_array[3] = p_z
 
         self.cartesian_vectors = np.ascontiguousarray(container_array)
-    
-    @property
-    def p_T(self) -> np.ndarray[tuple[int], np.dtype[np.float64]]:
+        self.p_T_array = self.get_p_T()
+        self.azimuthal_angle_array = self.get_azimuthal_angle()
+        self.rapidity_array = self.get_rapidity()
+
+    def get_p_T(self) -> np.ndarray[tuple[int], np.dtype[np.float64]]:
         """Array of transverse momentum of the four-vectors."""
         return np.sqrt(self.cartesian_vectors[1]**2 + self.cartesian_vectors[2]**2)
     
-    @property
-    def azimuthal_angle(self) -> np.ndarray[tuple[int], np.dtype[np.float64]]:
+    def get_azimuthal_angle(self) -> np.ndarray[tuple[int], np.dtype[np.float64]]:
         """Array of azimuthal angles of four-vectors."""
-        return np.atan(self.p_T / self.cartesian_vectors[2])
+        return np.atan(self.cartesian_vectors[2] / self.cartesian_vectors[1])
 
-    @property
-    def rapidity(self) -> np.ndarray[tuple[int], np.dtype[np.float64]]:
+    def get_rapidity(self) -> np.ndarray[tuple[int], np.dtype[np.float64]]:
         """Array of rapidities of the four-vectors."""
         return np.log((self.cartesian_vectors[0] + self.cartesian_vectors[3]) 
                       / (self.cartesian_vectors[0] - self.cartesian_vectors[3]))
+
+    def __getitem__(self, subscript) -> "FourVectorArray | FourVector":
+        """Define indexing FourVectorArray objects.
+        
+        Subscript works the same as numpy arrays. DOES NOT WORK FOR INDEXING ONE
+        FOUR-VECTOR AT A TIME.
+
+        Returns
+        -------
+        FourVectorArray
+        """
+        result = self.cartesian_vectors.T[subscript].T
+        instance = FourVectorArray([0.], [0.], [0.], [0.])
+        instance.cartesian_vectors = result
+        return instance
+    
+    def __setitem__(self, key, value) -> None:
+        """Set the item or items at `key` to value.
+        
+        Value should be of the signature:
+        `[E_array, p_x_array, p_y_array, p_z_array]`
+        """
+        if isinstance(value, FourVector):
+            self.cartesian_vectors.T[key] = value.cartesian_vector
+        elif isinstance(value, FourVectorArray):
+            self.cartesian_vectors.T[key] = value.cartesian_vectors.T
+        else:
+            self.cartesian_vectors.T[key] = value.T
+
+    def combine(self, key1: int, key2: int) -> None:
+        """Combine two vectors at indices `key1` and `key2`."""
+        result = self.cartesian_vectors.T[key1] + self.cartesian_vectors.T[key2]
+        self.cartesian_vectors.T[key1] = result
+        self.cartesian_vectors = np.append(self.cartesian_vectors.T[:key2],
+                                           self.cartesian_vectors.T[key2 + 1:],
+                                           axis=0).T
 
     def __abs__(self) -> np.ndarray[tuple[int], np.dtype[np.float64]]: 
         """Return an array of the magnitudes of the four-vectors, p^2.
@@ -208,10 +260,27 @@ class FourVectorArray:
             self.cartesian_vectors ** 2 * np.array(((1,), (-1,), (-1,), (-1,))), axis=0,
         )
 
-    def __add__(self, other) -> "FourVectorArray":
-        # TODO: possibly add typing here?
-        return FourVectorArray(*np.append(self.cartesian_vectors.T,
-                                          other.cartesian_vectors.T).T)
+    def __add__(self, other) -> "FourVectorArray | None":
+        """Append a FourVectorArray or FourVector this one and return it."""
+        if isinstance(other, FourVectorArray):
+            result_array = np.append(self.cartesian_vectors, other.cartesian_vectors,
+                                     axis=1)
+            return FourVectorArray(result_array[0], result_array[1], result_array[2],
+                                   result_array[3])
+        elif isinstance(other, FourVector):
+            append_array = np.array([[other.cartesian_vector[0]],
+                                     [other.cartesian_vector[1]],
+                                     [other.cartesian_vector[2]],
+                                     [other.cartesian_vector[3]]])
+            result_array = np.append(self.cartesian_vectors, append_array,
+                                     axis=1)
+            return FourVectorArray(result_array[0], result_array[1], result_array[2],
+                                   result_array[3])
+        else:
+            raise TypeError(
+                "The operation '+' is only supported with"
+                "FourVectors and FourVectorArrays."
+            )
 
     def _boost_result(
             self, beta_x: float, beta_y: float, beta_z: float
@@ -243,6 +312,8 @@ class FourVectorArray:
              [-gamma * beta_z, alpha * beta_z * beta_x, alpha * beta_z * beta_y,
               1 + alpha * beta_z**2]
         ]) @ self.cartesian_vectors
+        # numba will give a performance warning saying that self.cartesian_vectors isn't
+        # contigious. It has been set so above.
 
         return result
 
@@ -259,6 +330,9 @@ class FourVectorArray:
             The veloctiy in z of the frame, in units of c
         """
         self.cartesian_vectors = self._boost_result(beta_x, beta_y, beta_z)
+        self.rapidity_array = self.get_rapidity()
+        self.p_T_array = self.get_p_T()
+        self.azimuthal_angle_array = self.get_azimuthal_angle()
 
     def boosted(self, beta_x: float, beta_y: float, beta_z: float) -> "FourVectorArray":
         """Return a boosted FourVectorArray object.
@@ -276,17 +350,12 @@ class FourVectorArray:
         -------
         FourVectorArray
         """
-        return FourVectorArray(*self._boost_result(beta_x, beta_y, beta_z))
+        result_array = self._boost_result(beta_x, beta_y, beta_z)
+        return FourVectorArray(result_array[0], result_array[1], result_array[2],
+                               result_array[3])
 
     # IN ORDER:
-    # TODO: define del
-    # TODO: add getitem / indexing - if only 1 then give as FourVector object
-    # TODO: add indexing with an array of bools - gives slice
-    # np.selection might be useful above
-    # TODO: add combine rows - change implementation of p_T, rapdidity, and azimuthal angle
-    # a.T only makes views - it's okay to use them
     # TODO: add chunking? maybe later
-    # TODO: add from list of four-vectors (only if needed)
 
 # TODO: add type validation?
 # TODO: add all docstrings

@@ -177,10 +177,10 @@ class FourVectorArray:
 
         error_message = ""
         if not (E_shape == x_shape == y_shape == z_shape):
-            error_message = f"E_array.shape = {E_shape}, p_x_array.shape = " + \
-                f"{x_shape}, p_y_array.shape = {y_shape}, p_z_array.shape = {z_shape}"
-        elif not (E.ndim == 1 and p_x.ndim == 1 and p_y.ndim == 1 and p_z.ndim == 1):
-            error_message = f"E_array.ndim = {E.ndim}, p_x_array.ndim = {p_x.ndim}," + \
+            error_message += f"E_array.shape = {E_shape}, p_x_array.shape = " + \
+                f"{x_shape}, p_y_array.shape = {y_shape}, p_z_array.shape = {z_shape} "
+        if not (E.ndim == 1 and p_x.ndim == 1 and p_y.ndim == 1 and p_z.ndim == 1):
+            error_message += f"E_array.ndim = {E.ndim}, p_x_array.ndim = {p_x.ndim}," +\
                 f" p_y_array.ndim = {p_y.ndim}, p_z_array.ndim = {p_z.ndim}. " + \
                 f"All inputs should be 1d."
     
@@ -212,7 +212,7 @@ class FourVectorArray:
         return np.log((self.cartesian_vectors[0] + self.cartesian_vectors[3]) 
                       / (self.cartesian_vectors[0] - self.cartesian_vectors[3]))
 
-    def __getitem__(self, subscript) -> "FourVectorArray | FourVector":
+    def __getitem__(self, subscript) -> "FourVectorArray":
         """Define indexing FourVectorArray objects.
         
         Subscript works the same as numpy arrays. DOES NOT WORK FOR INDEXING ONE
@@ -223,8 +223,7 @@ class FourVectorArray:
         FourVectorArray
         """
         result = self.cartesian_vectors.T[subscript].T
-        instance = FourVectorArray([0.], [0.], [0.], [0.])
-        instance.cartesian_vectors = result
+        instance = FourVectorArray(result[0], result[1], result[2], result[3])
         return instance
     
     def __setitem__(self, key, value) -> None:
@@ -239,14 +238,6 @@ class FourVectorArray:
             self.cartesian_vectors.T[key] = value.cartesian_vectors.T
         else:
             self.cartesian_vectors.T[key] = value.T
-
-    def combine(self, key1: int, key2: int) -> None:
-        """Combine two vectors at indices `key1` and `key2`."""
-        result = self.cartesian_vectors.T[key1] + self.cartesian_vectors.T[key2]
-        self.cartesian_vectors.T[key1] = result
-        self.cartesian_vectors = np.append(self.cartesian_vectors.T[:key2],
-                                           self.cartesian_vectors.T[key2 + 1:],
-                                           axis=0).T
 
     def __abs__(self) -> np.ndarray[tuple[int], np.dtype[np.float64]]: 
         """Return an array of the magnitudes of the four-vectors, p^2.
@@ -282,7 +273,28 @@ class FourVectorArray:
                 "FourVectors and FourVectorArrays."
             )
 
-    def _boost_result(
+    def get_one_fourvector(self, index: int) -> FourVector:
+        """Return a `FourVector` object from the vector stored at `index`."""
+        vector = self.cartesian_vectors.T[index]
+        return FourVector(vector[0], vector[1], vector[2], vector[3])
+
+    def pop(self, index: int) -> FourVector:
+        """Return the four-vector at `index` as a `FourVector` object and remove it."""
+        value = self.get_one_fourvector(index)
+        self.cartesian_vectors = np.append(self.cartesian_vectors.T[:index],
+                                           self.cartesian_vectors.T[index + 1:],
+                                           axis=0).T
+        return value
+
+    def combine(self, key1: int, key2: int) -> None:
+        """Combine two vectors at indices `key1` and `key2`."""
+        result = self.cartesian_vectors.T[key1] + self.cartesian_vectors.T[key2]
+        self.cartesian_vectors.T[key1] = result
+        self.cartesian_vectors = np.append(self.cartesian_vectors.T[:key2],
+                                           self.cartesian_vectors.T[key2 + 1:],
+                                           axis=0).T
+
+    def _resultofboost(
             self, beta_x: float, beta_y: float, beta_z: float
         ) -> np.ndarray[tuple[int, int], np.dtype[np.float64]]:
         """Boost the whole array of Four-Vectors.
@@ -329,7 +341,7 @@ class FourVectorArray:
         beta_z : float
             The veloctiy in z of the frame, in units of c
         """
-        self.cartesian_vectors = self._boost_result(beta_x, beta_y, beta_z)
+        self.cartesian_vectors = self._resultofboost(beta_x, beta_y, beta_z)
         self.rapidity_array = self.get_rapidity()
         self.p_T_array = self.get_p_T()
         self.azimuthal_angle_array = self.get_azimuthal_angle()
@@ -350,7 +362,7 @@ class FourVectorArray:
         -------
         FourVectorArray
         """
-        result_array = self._boost_result(beta_x, beta_y, beta_z)
+        result_array = self._resultofboost(beta_x, beta_y, beta_z)
         return FourVectorArray(result_array[0], result_array[1], result_array[2],
                                result_array[3])
 

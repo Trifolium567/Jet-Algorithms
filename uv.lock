@@ -804,6 +804,15 @@ wheels = [
 ]
 
 [[package]]
+name = "intel-cmplr-lib-rt"
+version = "2026.2.0"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7a/60/c9232e85f37a7f9e40d800679341b27eae240e4992221b861e0f3882d109/intel_cmplr_lib_rt-2026.2.0-py2.py3-none-manylinux_2_28_x86_64.whl", hash = "sha256:9f713083073a820d2496a6da8e8d4f3482aba6640f74521d25ea48dcebe72748", size = 41454395, upload-time = "2026-10-16T12:34:57.526Z" },
+    { url = "https://files.pythonhosted.org/packages/60/d3/3be0c4a92a90e839dbff94052228fc11fad3ed08b562f236ec8585b297ec/intel_cmplr_lib_rt-2026.2.0-py2.py3-none-win_amd64.whl", hash = "sha256:bfeec6a2a1f032a36490cc46cb1d566813fd75fd9e068b80f231043abfb4dc98", size = 16196984, upload-time = "2026-10-16T12:31:57.422Z" },
+]
+
+[[package]]
 name = "ipykernel"
 version = "7.4.0"
 source = { registry = "https://pypi.org/simple" }
@@ -905,6 +914,7 @@ name = "jet-algorithms"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "intel-cmplr-lib-rt" },
     { name = "matplotlib" },
     { name = "numba" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
@@ -920,6 +930,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "intel-cmplr-lib-rt", specifier = ">=2026.2.0" },
     { name = "matplotlib", specifier = ">=3.11.2" },
     { name = "numba", specifier = ">=0.68.1" },
     { name = "numpy", specifier = ">=2.4.6" },

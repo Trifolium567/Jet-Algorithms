@@ -1,5 +1,6 @@
 import numba as nb
 import numpy as np
+from numba.typed import List as nblist
 
 
 @nb.experimental.jitclass([
@@ -29,18 +30,18 @@ class FourVector:
     @property
     def p_T(self):
         """Transverse momentum of the four-vector."""
-        return np.sqrt(self.cartesian_vector[1]**2 + self.cartesian_vector[2]**2)
+        return find_transverse_momentum(self.cartesian_vector[1],
+                                        self.cartesian_vector[2])
     
     @property
     def azimuthal_angle(self):
         """Azimuthal angle of the four-vector."""
-        return np.atan(self.cartesian_vector[2] / self.cartesian_vector[1])
+        return find_azimuthal_angle(self.cartesian_vector[1], self.cartesian_vector[2])
 
     @property
     def rapidity(self):
         """Rapidity of the four-vector."""
-        return np.log((self.cartesian_vector[0] + self.cartesian_vector[3]) 
-                      / (self.cartesian_vector[0] - self.cartesian_vector[3]))
+        return find_rapidity(self.cartesian_vector[0], self.cartesian_vector[3])
         
     def __abs__(self) -> float:
         """Return the magnitude of the four-vector, p^2.
@@ -146,7 +147,12 @@ class FourVectorArray:
     azimuthal_angle_array: np.ndarray[tuple[int], np.dtype[np.float64]]
     rapidity_array: np.ndarray[tuple[int], np.dtype[np.float64]]
 
-    def __init__(self, E_array, p_x_array, p_y_array, p_z_array):
+    def __init__(self,
+                 E_array: np.typing.ArrayLike,
+                 p_x_array: np.typing.ArrayLike,
+                 p_y_array: np.typing.ArrayLike,
+                 p_z_array: np.typing.ArrayLike,
+        ):
         """Initialise the FourVectorArray object.
 
         Parameters
@@ -195,22 +201,12 @@ class FourVectorArray:
         container_array[3] = p_z
 
         self.cartesian_vectors = np.ascontiguousarray(container_array)
-        self.p_T_array = self.get_p_T()
-        self.azimuthal_angle_array = self.get_azimuthal_angle()
-        self.rapidity_array = self.get_rapidity()
-
-    def get_p_T(self) -> np.ndarray[tuple[int], np.dtype[np.float64]]:
-        """Array of transverse momentum of the four-vectors."""
-        return np.sqrt(self.cartesian_vectors[1]**2 + self.cartesian_vectors[2]**2)
-    
-    def get_azimuthal_angle(self) -> np.ndarray[tuple[int], np.dtype[np.float64]]:
-        """Array of azimuthal angles of four-vectors."""
-        return np.atan(self.cartesian_vectors[2] / self.cartesian_vectors[1])
-
-    def get_rapidity(self) -> np.ndarray[tuple[int], np.dtype[np.float64]]:
-        """Array of rapidities of the four-vectors."""
-        return np.log((self.cartesian_vectors[0] + self.cartesian_vectors[3]) 
-                      / (self.cartesian_vectors[0] - self.cartesian_vectors[3]))
+        self.p_T_array = find_transverse_momentum(self.cartesian_vectors[1],
+                                                  self.cartesian_vectors[2])
+        self.azimuthal_angle_array = find_azimuthal_angle(self.cartesian_vectors[1],
+                                                            self.cartesian_vectors[2])
+        self.rapidity_array = find_rapidity(self.cartesian_vectors[0],
+                                            self.cartesian_vectors[3])
 
     def __getitem__(self, subscript) -> "FourVectorArray":
         """Define indexing FourVectorArray objects.
@@ -230,14 +226,23 @@ class FourVectorArray:
         """Set the item or items at `key` to value.
         
         Value should be of the signature:
-        `[E_array, p_x_array, p_y_array, p_z_array]`
+        `[E_array, p_x_array, p_y_array, p_z_array]` or `[E, p_x, p_y, p_z]`
         """
         if isinstance(value, FourVector):
             self.cartesian_vectors.T[key] = value.cartesian_vector
+            self.p_T_array[key] = value.p_T
+            self.rapidity_array[key] = value.rapidity
+            self.azimuthal_angle_array[key] = value.azimuthal_angle
         elif isinstance(value, FourVectorArray):
             self.cartesian_vectors.T[key] = value.cartesian_vectors.T
+            self.azimuthal_angle_array[key] = value.azimuthal_angle_array
+            self.rapidity_array[key] = value.rapidity_array
+            self.p_T_array[key] = value.p_T_array
         else:
             self.cartesian_vectors.T[key] = value.T
+            self.p_T_array[key] = find_transverse_momentum(value[1], value[2])
+            self.azimuthal_angle_array[key] = find_azimuthal_angle(value[1], value[2])
+            self.rapidity_array[key] = find_rapidity(value[0], value[3])
 
     def __abs__(self) -> np.ndarray[tuple[int], np.dtype[np.float64]]: 
         """Return an array of the magnitudes of the four-vectors, p^2.
@@ -251,8 +256,10 @@ class FourVectorArray:
             self.cartesian_vectors ** 2 * np.array(((1,), (-1,), (-1,), (-1,))), axis=0,
         )
 
-    def __add__(self, other) -> "FourVectorArray | None":
-        """Append a FourVectorArray or FourVector this one and return it."""
+    def __add__(self,
+                other: "FourVectorArray | FourVector"
+        ) -> "FourVectorArray | None":
+        """Append a FourVectorArray or FourVector to this one and return it."""
         if isinstance(other, FourVectorArray):
             result_array = np.append(self.cartesian_vectors, other.cartesian_vectors,
                                      axis=1)
@@ -269,10 +276,12 @@ class FourVectorArray:
                                    result_array[3])
         else:
             raise TypeError(
-                "The operation '+' is only supported with"
-                "FourVectors and FourVectorArrays."
+                "The operation '+' on this object is only supported with FourVectors "
+                "and FourVectorArrays."
             )
 
+    # do not make a __delitem__, numba does not support it.
+    
     def get_one_fourvector(self, index: int) -> FourVector:
         """Return a `FourVector` object from the vector stored at `index`."""
         vector = self.cartesian_vectors.T[index]
@@ -281,18 +290,35 @@ class FourVectorArray:
     def pop(self, index: int) -> FourVector:
         """Return the four-vector at `index` as a `FourVector` object and remove it."""
         value = self.get_one_fourvector(index)
-        self.cartesian_vectors = np.append(self.cartesian_vectors.T[:index],
-                                           self.cartesian_vectors.T[index + 1:],
-                                           axis=0).T
+        index_mask = np.arange(len(self.azimuthal_angle_array)) != index
+        self.cartesian_vectors = self.cartesian_vectors.T[index_mask].T
+        self.azimuthal_angle_array = self.azimuthal_angle_array[index_mask]
+        self.rapidity_array = self.rapidity_array[index_mask]
+        self.p_T_array = self.p_T_array[index_mask]
         return value
 
-    def combine(self, key1: int, key2: int) -> None:
-        """Combine two vectors at indices `key1` and `key2`."""
-        result = self.cartesian_vectors.T[key1] + self.cartesian_vectors.T[key2]
-        self.cartesian_vectors.T[key1] = result
-        self.cartesian_vectors = np.append(self.cartesian_vectors.T[:key2],
-                                           self.cartesian_vectors.T[key2 + 1:],
-                                           axis=0).T
+    def combine(self, index1: int, index2: int) -> None:
+        """Combine two vectors at indices `index1` and `index2`."""
+        result = self.cartesian_vectors.T[index1] + self.cartesian_vectors.T[index2]
+        self.cartesian_vectors.T[index1] = result  # result signature [E, p_x, p_y, p_z]
+        self.azimuthal_angle_array[index1] = find_azimuthal_angle(result[1], result[2])
+        self.rapidity_array[index1] = find_rapidity(result[0], result[3])
+        self.p_T_array[index1] = find_transverse_momentum(result[1], result[2])
+        index_mask = np.arange(len(self.azimuthal_angle_array)) != index2
+        self.cartesian_vectors = self.cartesian_vectors.T[index_mask].T
+        self.azimuthal_angle_array = self.azimuthal_angle_array[index_mask]
+        self.rapidity_array = self.rapidity_array[index_mask]
+        self.p_T_array = self.p_T_array[index_mask]
+
+    def delta_phi(self, index1: int, index2: int) -> None:
+        """Find the difference in azimuthal angle between the four-vectors at `index1` and `index2`."""  # ruff: ignore[line-too-long]
+        p_1 = np.asarray(self.cartesian_vectors.T[index1][1:3])
+        p_2 = np.asarray(self.cartesian_vectors.T[index2][1:3])
+        cos_phi = np.clip(np.dot(p_1, p_2) / 
+                          np.sqrt(np.sum(p_1 ** 2) * np.sum(p_2 ** 2)),
+                            -1.0, 1.0
+                        )
+        return np.acos(cos_phi)
 
     def _resultofboost(
             self, beta_x: float, beta_y: float, beta_z: float
@@ -342,9 +368,12 @@ class FourVectorArray:
             The veloctiy in z of the frame, in units of c
         """
         self.cartesian_vectors = self._resultofboost(beta_x, beta_y, beta_z)
-        self.rapidity_array = self.get_rapidity()
-        self.p_T_array = self.get_p_T()
-        self.azimuthal_angle_array = self.get_azimuthal_angle()
+        self.rapidity_array = find_rapidity(self.cartesian_vectors[0],
+                                            self.cartesian_vectors[3])
+        self.p_T_array = find_transverse_momentum(self.cartesian_vectors[1],
+                                                  self.cartesian_vectors[2])
+        self.azimuthal_angle_array = find_azimuthal_angle(self.cartesian_vectors[1],
+                                                          self.cartesian_vectors[2])
 
     def boosted(self, beta_x: float, beta_y: float, beta_z: float) -> "FourVectorArray":
         """Return a boosted FourVectorArray object.
@@ -366,9 +395,36 @@ class FourVectorArray:
         return FourVectorArray(result_array[0], result_array[1], result_array[2],
                                result_array[3])
 
-    # IN ORDER:
-    # TODO: add chunking? maybe later
 
-# TODO: add type validation?
-# TODO: add all docstrings
-# TODO: configure ty to help with typing?
+@nb.jit
+def find_rapidity(E, p_z):
+    """Return the rapidity from energy `E` and momentum `p_z`."""
+    return np.log((E + p_z) / (E - p_z)) / 2
+
+
+@nb.jit
+def find_azimuthal_angle(p_x, p_y):
+    """Return the azimuthal angle between 0 and 2 pi given by `p_x` and `p_y`."""
+    return np.atan2(p_y, p_x)
+
+
+@nb.jit
+def find_transverse_momentum(p_x, p_y):
+    """Return the transverse momentum given by `p_x` and `p_y`."""
+    return np.sqrt(p_x ** 2 + p_y ** 2)
+
+
+def from_FourVector_list(fv_list: list[FourVector]) -> "FourVectorArray":
+    """Return a FourVectorArray object from a list of FourVectorArrays."""
+    n_fv = len(fv_list)
+    E = nblist.empty_list(nb.float64, n_fv)
+    p_x = nblist.empty_list(nb.float64, n_fv)
+    p_y = nblist.empty_list(nb.float64, n_fv)
+    p_z = nblist.empty_list(nb.float64, n_fv)
+    for fv in fv_list:
+        E.append(fv.cartesian_vector[0])
+        p_x.append(fv.cartesian_vector[1])
+        p_y.append(fv.cartesian_vector[2])
+        p_z.append(fv.cartesian_vector[3])
+
+    return FourVectorArray(E, p_x, p_y, p_z)

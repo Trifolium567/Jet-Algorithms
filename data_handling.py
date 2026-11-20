@@ -8,14 +8,22 @@ listofints_type = nb.extending.as_numba_type(list[int])  # ty: ignore[possibly-m
 
 @nb.experimental.jitclass
 class Event:
+    """An object representing all the particles of a single event.
 
-    status_array: nb.int16[:]  # ty: ignore[invalid-type-form]
-    PID_array: nb.int64[:]  # ty: ignore[invalid-type-form]
+    Returns
+    -------
+    Event
+        An instance of this class
+
+    Raises
+    ------
+    ValueError
+        If the input arrays are not all the same shape and not all one dimension
+    """
+
+    status_array: nb.int16[:]  # pyright: ignore[reportInvalidTypeForm] # ty: ignore[invalid-type-form]
+    PID_array: nb.int64[:]  # pyright: ignore[reportInvalidTypeForm] # ty: ignore[invalid-type-form]
     four_vectors: fv.FourVectorArray
-    four_vectors_reference: fv.FourVectorArray
-    clustered_four_vectors: fv.FourVectorArray
-    index_reference: list[list[int]]
-    clustered_indices: list[list[int]]
 
     def __init__(
             self, status_array: np.typing.ArrayLike,  # np.typing.ArrayLike is any
@@ -45,7 +53,7 @@ class Event:
         Raises
         ------
         ValueError
-            If arrays are not all the same shape and not all one dimension
+            If the input arrays are not all the same shape and not all one dimension.
         """
         status_array = np.asarray(status_array, dtype=np.int16)
         PID_array = np.asarray(PID_array, dtype=np.int_)
@@ -77,40 +85,25 @@ class Event:
         self.PID_array = PID_array
         self.four_vectors = fv.FourVectorArray(E_array, p_x_array,
                                                p_y_array, p_z_array)
-        
-        self.four_vectors_reference = fv.FourVectorArray(
-            E_array.copy(), p_x_array.copy(), p_y_array.copy(), p_z_array.copy()
-        )
 
-        self.index_reference = nblist([nblist([i]) for i in
-                                       range(len(self.status_array))])
-        self.clustered_indices = nblist.empty_list(listofints_type)
-        self.clustered_four_vectors = fv.FourVectorArray([0,], [0,], [0,], [0,])
+    def get_four_vectors(self, subscript) -> fv.FourVectorArray:
+        """Return the four-vectors of the event from a subscript.
 
-    def combine_in_reference(self, key1: int, key2: int):
-        """Combine two particles into one particle.
+        `subscript` can be a list of ints.
 
-        This combines the vectors in a reference FourVectorArray object,
-        `four_vectors_reference` and logs which particles have been combined in the 
-        `index_reference` array.
-
-        Parameters
-        ----------
-        key1 : int
-            The index of one particle to be combined
-        key2 : int
-            The index of the other particle to be combined
+        Returns
+        -------
+        four_vectors.FourVectorArray
         """
-        self.four_vectors_reference.combine(key1, key2)
-        # self.index_reference[key1] += self.index_reference[key2]
-        self.index_reference[key1].extend(self.index_reference[key2])
-        del self.index_reference[key2]
+        index_array = np.asarray(subscript)
+        return self.four_vectors[index_array]
 
-    def get_one_particle(self, index):
-        return self.status_array[index], self.PID_array[index], \
-            self.four_vectors.get_one_fourvector(index)
+    # def get_one_particle(self, index):
+    #     """"""
+    #     return self.status_array[index], self.PID_array[index], \
+    #         self.four_vectors.get_one_fourvector(index)
     
-    def make_cuts(self, new_obj: bool = False,  # * makes the rest keyword-only arguments
+    def make_cuts(self, new_obj: bool = False,
                   min_E: float = 0,
                   max_E: float = np.inf, 
                   min_p_T: float = -np.inf,
@@ -122,32 +115,30 @@ class Event:
         ) -> "None | Event":
         """Make cuts to the data.
 
-        The removed objects are not completely deleted, they are just removed from the
-        reference `FourVectorArray` and the `index_reference`
-
         If new_obj is True, return a new EventData object with the cuts made.
 
         Parameters
         ----------
         new_obj : bool, optional
             If new_obj is True, return a new EventData object with the cuts made.
-            by default False
+            Otherwise, perform the cuts in-place.
+            By default `False`.
         min_E : float, optional
-            minimum Energy, by default 0
+            minimum Energy, by default `0`
         max_E : float, optional
-            maximum Energy, by default np.inf
+            maximum Energy, by default `np.inf`
         min_p_T : float, optional
-            minimum transverse momentum, by default -np.inf
+            minimum transverse momentum, by default `-np.inf`
         max_p_T : float, optional
-            maximum transverse momentum, by default np.inf
+            maximum transverse momentum, by default `np.inf`
         min_azimuthal_angle : float, optional
-            minimum azimuthal angle, by default -np.inf
+            minimum azimuthal angle, by default `-np.inf`
         max_azimuthal_angle : float, optional
-            maximum azimuthal angle, by default np.inf
+            maximum azimuthal angle, by default `np.inf`
         min_rapidity : float, optional
-            minimum rapidity, by default -np.inf
+            minimum rapidity, by default `-np.inf`
         max_rapidity : float, optional
-            maximum rapidity, by default np.inf
+            maximum rapidity, by default `np.inf`
 
         Returns
         -------
@@ -159,45 +150,41 @@ class Event:
         """
         # make checks to make sure the important ones are finite
         # cartesian_vectors[0] is energy.
-        check_array = np.isfinite(self.four_vectors_reference.cartesian_vectors[0]) &\
-                      np.isfinite(self.four_vectors_reference.p_T_array) & \
-                      np.isfinite(self.four_vectors_reference.rapidity_array) & \
-                      np.isfinite(self.four_vectors_reference.azimuthal_angle_array)
+        check_array = np.isfinite(self.four_vectors.cartesian_vectors[0]) &\
+                      np.isfinite(self.four_vectors.p_T_array) & \
+                      np.isfinite(self.four_vectors.rapidity_array) & \
+                      np.isfinite(self.four_vectors.azimuthal_angle_array)
 
         # specified checks
-        check_array &= self.four_vectors_reference.cartesian_vectors[0] > min_E
-        check_array &= self.four_vectors_reference.cartesian_vectors[0] < max_E
-        check_array &= self.four_vectors_reference.p_T_array > min_p_T
-        check_array &= self.four_vectors_reference.p_T_array < max_p_T
-        check_array &= self.four_vectors_reference.rapidity_array > min_rapidity
-        check_array &= self.four_vectors_reference.rapidity_array < max_rapidity
-        check_array &= self.four_vectors_reference.azimuthal_angle_array \
-                        > min_azimuthal_angle
-        check_array &= self.four_vectors_reference.azimuthal_angle_array \
-            < max_azimuthal_angle
+        check_array &= self.four_vectors.cartesian_vectors[0] > min_E
+        check_array &= self.four_vectors.cartesian_vectors[0] < max_E
+        check_array &= self.four_vectors.p_T_array > min_p_T
+        check_array &= self.four_vectors.p_T_array < max_p_T
+        check_array &= self.four_vectors.rapidity_array > min_rapidity
+        check_array &= self.four_vectors.rapidity_array < max_rapidity
+        check_array &= self.four_vectors.azimuthal_angle_array > min_azimuthal_angle
+        check_array &= self.four_vectors.azimuthal_angle_array < max_azimuthal_angle
 
-        # cut the index_reference list
-        new_indices = np.nonzero(check_array)[0]
-        new_index_reference = nblist.empty_list(listofints_type, len(new_indices))
-        for i in new_indices:
-            new_index_reference.append(self.index_reference[i])
-        
-        checked_four_vectors = self.four_vectors_reference[check_array]
+        checked_status_array = self.status_array[check_array]
+        checked_PID_array = self.PID_array[check_array]
+        checked_four_vectors = self.four_vectors[check_array]
         
         if new_obj:
             return Event(
-                self.status_array[check_array],
-                self.PID_array[check_array],
+                checked_status_array,
+                checked_PID_array,
                 checked_four_vectors.cartesian_vectors[0],
                 checked_four_vectors.cartesian_vectors[1],
                 checked_four_vectors.cartesian_vectors[2],
                 checked_four_vectors.cartesian_vectors[3]
             )
         # else:
-        self.four_vectors_reference = checked_four_vectors
-        self.index_reference = new_index_reference
+        self.status_array = checked_status_array
+        self.PID_array = checked_PID_array
+        self.four_vectors = checked_four_vectors
 
     def copy(self):
+        """Return a copy of the Event instance."""
         return Event(
             self.status_array.copy(), self.PID_array.copy(),
             self.four_vectors.cartesian_vectors[0].copy(),
@@ -205,84 +192,131 @@ class Event:
             self.four_vectors.cartesian_vectors[2].copy(),
             self.four_vectors.cartesian_vectors[3].copy(),
         )
-    
-    def _one_kt_pass(self, k, R):
-        _parallelised_one_kt_pass(self, k, R)
 
-    def kt_algorithm(self, k, R):
-        if not len(self.index_reference):
-            raise ValueError("This event is already clustered. Try making a copy using"
-                             " .copy() and clustering that one.")
+    def kt_algorithm(
+            self, k: int, R: float, status: int
+        ) -> tuple[list[list[int]], fv.FourVectorArray]:
+        """Perform the k-t algorithm with on particles of status `status`.
+
+        Parameters
+        ----------
+        k : int
+            The number which determines which algorithm to perform
+        R : float
+            The R-parameter used in the algorithm
+        status : int
+            The particles upon which the algorithm is to be performed
+
+        Returns
+        -------
+        tuple[list[list[int]], fv.FourVectorArray]
+            - a list of the clusters represented as indexes into the `status_array`,
+                `PID_array` and `four_vectors` attributes of the `Event` instance that
+                this method was called from.
+            - a `FourVectorArray` object containing the four-vectors of the clusters. 
+        """
+        detectable_indexes = np.nonzero(self.status_array == status)[0]
+        index_reference = nblist.empty_list(listofints_type)
+        for i in detectable_indexes:
+            index_reference.append(nblist([i]))
+
+        four_vectors_reference = self.four_vectors[self.status_array == status]
+
+        clustered_indices = nblist.empty_list(listofints_type)
+        clustered_four_vectors = fv.FourVectorArray([0,], [0,], [0,], [0,], )
+        # create four_vector array with zero four-vectors because can't really create
+        # empty one (remove this before returning it)
+
         # else:
-        while len(self.index_reference) != 0:
-            self._one_kt_pass(k, R)
-        # TODO: is this the best exception to raise?
-        # except Exception:
-        #     print(self.index_reference)
-        #     print(len(self.index_reference))
-        #     print(self.four_vectors_reference.cartesian_vectors)
-        #     print(self.clustered_four_vectors.cartesian_vectors)
-        #     print(self.clustered_indices)
-    
-    # TODO: add reset method? with choice to return new object?
+        while len(index_reference) != 0:
+            _parallelised_one_kt_pass(k, R, index_reference, four_vectors_reference,
+                                      clustered_indices, clustered_four_vectors)
+        clustered_four_vectors.pop(0)  # remove the first vector
+        return clustered_indices, clustered_four_vectors
 
 
-@nb.jit(parallel=True)
-def _parallelised_one_kt_pass(instance, k, R):
+@nb.jit(parallel=True)  # decorator parallelises code
+def _parallelised_one_kt_pass(k, R, index_reference, four_vectors_reference,
+                              clustered_indices, clustered_four_vectors):
+    """One pass of the k-t algorithm, done outside the class to make use of numba
+    parallelisation.
+    """  # ruff: ignore[missing-blank-line-after-summary]
     # unique combinations is equivalent to a single triangle (displaced from the
     # diagonal by 1) of the indices of an n by n array where n is the number of 
     # events (e.g. upper triangle or lower triangle)
-    n = len(instance.index_reference)
-    index0, index1 = np.triu_indices(n, k=1)
-    # index0 = np.asarray(index0)
-    # index1 = np.asarray(index1)
+    n = len(index_reference)
+    index0, index1 = np.triu_indices(n, 1)
     n_combinations = len(index0)
     n_dparam = n_combinations + n
-    i_values = np.empty(n_dparam, dtype=np.int_)
+    i_values = np.zeros(n_dparam, dtype=np.int_)
     i_values[:n_combinations] = index0
-    j_values = np.empty(n_dparam, dtype=np.int_)
+    i_values[n_combinations:] = -1  # identifier for distance parameter with beam
+    j_values = np.zeros(n_dparam, dtype=np.int_)
     j_values[:n_combinations] = index1
-    d_array = np.empty(n_dparam, dtype=np.float64)
+    j_values[n_combinations:] = np.arange(n)
+    d_array = np.zeros(n_dparam, dtype=np.float64)
     for m in nb.prange(n_combinations):
-        i = index0[m]
-        j = index1[m]
-        p_T_i = instance.four_vectors_reference.p_T_array[i] ** (2 * k)
-        p_T_j = instance.four_vectors_reference.p_T_array[j] ** (2 * k)
+        i = i_values[m]
+        j = j_values[m]
+        p_T_i = four_vectors_reference.p_T_array[i] ** (2 * k)
+        p_T_j = four_vectors_reference.p_T_array[j] ** (2 * k)
 
         if p_T_i < p_T_j:
             p_T = p_T_i
         else:
             p_T = p_T_j
 
-        Delta_R_ij_sq = (instance.four_vectors_reference.rapidity_array[i] 
-                            - instance.four_vectors_reference.rapidity_array[j]) ** 2 \
-                        + (instance.four_vectors_reference.azimuthal_angle_array[i]
-                        - instance.four_vectors_reference.azimuthal_angle_array[j]) ** 2
-        
-        d_array[m] = p_T * Delta_R_ij_sq / R ** 2
+        # delta_phi = four_vectors_reference.delta_phi(i, j)
+        # delta_phi = np.mod(four_vectors_reference.azimuthal_angle_array[i] -
+        #                     four_vectors_reference.azimuthal_angle_array[j], np.pi)
+        # delta_phi = four_vectors_reference.azimuthal_angle_array[i] - \
+        #                     four_vectors_reference.azimuthal_angle_array[j]
+        delta_phi = abs(four_vectors_reference.azimuthal_angle_array[i]
+                            - four_vectors_reference.azimuthal_angle_array[j])
+        delta_phi = min(delta_phi, 2 * np.pi - delta_phi)
+
+        Delta_R_ij_sq = (four_vectors_reference.rapidity_array[i] 
+                            - four_vectors_reference.rapidity_array[j]) ** 2 \
+                        + delta_phi ** 2
+
+        d_array[m] = p_T * Delta_R_ij_sq / (R ** 2)
 
     for m in nb.prange(n_combinations, n_combinations + n):
-        i_values[m] = -1  # -1 codes for distance parameter with the beam
-        j_values[m] = m - n_combinations
-        d_array[m] = instance.four_vectors_reference.p_T_array[m - n_combinations] \
-                                                                        ** (2 * k)
+        j = j_values[m]
+        d_array[m] = four_vectors_reference.p_T_array[j] ** (2 * k)
 
     min_index = np.argmin(d_array)
 
-    if i_values[min_index] == -1:  # if distance parameter with the beam
-        # remove detected particle from clustering
+    if i_values[min_index] == -1:  # if distance parameter is with the beam
+        #                            remove particle from clustering
         j = j_values[min_index]
-        instance.clustered_indices.append(instance.index_reference.pop(j))
-        instance.clustered_four_vectors = instance.clustered_four_vectors\
-                                          + instance.four_vectors_reference.pop(j)
+        clustered_indices.append(index_reference.pop(j))
+        clustered_four_vectors = clustered_four_vectors + four_vectors_reference.pop(j)
         # the above appends the four-vector at index in the four-vector reference to
         # the jets FourVectorArray
     else:  # otherwise, it must be between two particles
-        instance.combine_in_reference(i_values[min_index], j_values[min_index])
+        # combine the particles
+        i = i_values[min_index]
+        j = j_values[min_index]
+        four_vectors_reference.combine(i, j)
+        index_reference[i].extend(index_reference[j])
+        del index_reference[j]
+
 
 # event_type = nb.extending.as_numba_type(EventData)
 # @nb.jit
-def events_from_file(filename):
+def events_from_file(filename: str) -> list[Event]:
+    """Return a list of Event objects created from inforation read from `filename`.
+
+    Parameters
+    ----------
+    filename : str
+        The name of the file to be read from
+
+    Returns
+    -------
+    list[Event]
+    """
     # event_list = nblist.empty_list(event_type, 10000)
     event_list = []
     with open(filename, mode="r") as file:

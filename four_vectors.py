@@ -299,11 +299,14 @@ class FourVectorArray:
 
     def combine(self, index1: int, index2: int) -> None:
         """Combine two vectors at indices `index1` and `index2`."""
+        # get add the four-vectors and set index1 to the result
         result = self.cartesian_vectors.T[index1] + self.cartesian_vectors.T[index2]
         self.cartesian_vectors.T[index1] = result  # result signature [E, p_x, p_y, p_z]
+        # recalculate the other values and set them
         self.azimuthal_angle_array[index1] = find_azimuthal_angle(result[1], result[2])
         self.rapidity_array[index1] = find_rapidity(result[0], result[3])
         self.p_T_array[index1] = find_transverse_momentum(result[1], result[2])
+        # delete the four-vector at index2
         index_mask = np.arange(len(self.azimuthal_angle_array)) != index2
         self.cartesian_vectors = self.cartesian_vectors.T[index_mask].T
         self.azimuthal_angle_array = self.azimuthal_angle_array[index_mask]
@@ -314,10 +317,9 @@ class FourVectorArray:
         """Find the difference in azimuthal angle between the four-vectors at `index1` and `index2`."""  # ruff: ignore[line-too-long]
         p_1 = np.asarray(self.cartesian_vectors.T[index1][1:3])
         p_2 = np.asarray(self.cartesian_vectors.T[index2][1:3])
-        cos_phi = np.clip(np.dot(p_1, p_2) / 
-                          np.sqrt(np.sum(p_1 ** 2) * np.sum(p_2 ** 2)),
-                            -1.0, 1.0
-                        )
+        cos_phi = np.clip(
+            np.dot(p_1, p_2) / np.sqrt(np.sum(p_1 ** 2) * np.sum(p_2 ** 2)), -1.0, 1.0
+        )
         return np.acos(cos_phi)
 
     def _resultofboost(

@@ -9,5 +9,5 @@ wheels/
 # Virtual environments
 .venv
 
-# tool configurations
+# configuration files
 ruff.toml

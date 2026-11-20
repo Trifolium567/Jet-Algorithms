@@ -266,11 +266,6 @@ def _parallelised_one_kt_pass(k, R, index_reference, four_vectors_reference,
         else:
             p_T = p_T_j
 
-        # delta_phi = four_vectors_reference.delta_phi(i, j)
-        # delta_phi = np.mod(four_vectors_reference.azimuthal_angle_array[i] -
-        #                     four_vectors_reference.azimuthal_angle_array[j], np.pi)
-        # delta_phi = four_vectors_reference.azimuthal_angle_array[i] - \
-        #                     four_vectors_reference.azimuthal_angle_array[j]
         delta_phi = abs(four_vectors_reference.azimuthal_angle_array[i]
                             - four_vectors_reference.azimuthal_angle_array[j])
         delta_phi = min(delta_phi, 2 * np.pi - delta_phi)

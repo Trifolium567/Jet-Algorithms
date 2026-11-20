@@ -313,15 +313,6 @@ class FourVectorArray:
         self.rapidity_array = self.rapidity_array[index_mask]
         self.p_T_array = self.p_T_array[index_mask]
 
-    def delta_phi(self, index1: int, index2: int) -> None:
-        """Find the difference in azimuthal angle between the four-vectors at `index1` and `index2`."""  # ruff: ignore[line-too-long]
-        p_1 = np.asarray(self.cartesian_vectors.T[index1][1:3])
-        p_2 = np.asarray(self.cartesian_vectors.T[index2][1:3])
-        cos_phi = np.clip(
-            np.dot(p_1, p_2) / np.sqrt(np.sum(p_1 ** 2) * np.sum(p_2 ** 2)), -1.0, 1.0
-        )
-        return np.acos(cos_phi)
-
     def _resultofboost(
             self, beta_x: float, beta_y: float, beta_z: float
         ) -> np.ndarray[tuple[int, int], np.dtype[np.float64]]:
